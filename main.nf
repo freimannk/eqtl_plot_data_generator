@@ -94,7 +94,7 @@ if( !(workflow.runName ==~ /[a-z]+_[a-z]+/) ){
 Channel.fromPath(params.studyFile)
     .ifEmpty { error "Cannot find studyFile file in: ${params.studyFile}" }
     .splitCsv(header: true, sep: '\t', strip: true)
-    .map{row -> [ row.name_of_study, row.quant_method, row.qtl_group, file(row.susie_purity_filtered), file(row.sample_meta), file(row.bigwig_path), file(row.usage_matrix_norm), file(row.exon_summ_stats_files), file(row.all_summ_stats_files), file(row.pheno_meta), file(row.scaling_factors) ]}
+    .map{row -> [ row.dataset_id, row.quant_method, row.qtl_group, file(row.credible_sets_file), file(row.sample_meta), file(row.bigwig_path), file(row.usage_matrix_norm), file(row.exon_summ_stats_files), file(row.all_summ_stats_files), file(row.pheno_meta), file(row.scaling_factors) ]}
     .branch {
         ge: it[1] == "ge"
         exon: it[1] == "exon"
@@ -107,7 +107,7 @@ Channel.fromPath(params.studyFile)
 Channel.fromPath(params.studyFile)
   .ifEmpty { error "Cannot find studyFile file in: ${params.studyFile}" }
   .splitCsv(header: true, sep: '\t', strip: true)
-  .map{row -> [ row.name_of_study, file(row.vcf_file) ]}
+  .map{row -> [ row.dataset_id, file(row.vcf_file) ]}
   .distinct()
   .set { vcf_file_ch }
 
