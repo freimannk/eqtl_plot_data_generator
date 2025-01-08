@@ -29,7 +29,6 @@ process split_into_batches {
 
     script:
     """
-
     $projectDir/bin/prepare_batches.py \
         -n $all_summ_stats_files \
         -e $exon_summ_stats_files \
@@ -42,7 +41,6 @@ process split_into_batches {
 
 process writeFileFromChannel {
     tag "${dataset_id}_${qtl_group}_${quant_method}"
-    label "process_low"
 
     input:
     tuple val(dataset_id), val(quant_method), val(qtl_group), val(files)
@@ -59,7 +57,7 @@ process writeFileFromChannel {
 }
 
 process generate_sqlite {
-    tag "${dataset_id}_${qtl_group}_${quant_method}"
+    tag "${dataset_id}"
     container "quay.io/kfkf33/eqtl_ploting:v2"
     publishDir "${params.outdir}/${dataset_id}_${qtl_group}_${quant_method}", mode: 'copy', overwrite: true, pattern: "*.sqlite"
 

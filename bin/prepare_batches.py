@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # keep order
     highest_pip_vars_per_cs = highest_pip_vars_per_cs.select(original_columns)
     highest_pip_vars_per_cs = highest_pip_vars_per_cs.join(
-    phenotype_metadata_df.select(["phenotype_id", "strand","gene_name"]),  
+    phenotype_metadata_df.select(["phenotype_id", "strand","gene_name","group_id","quant_id"]),  
     left_on="molecular_trait_id",  
     right_on="phenotype_id",       
     how="left"                    

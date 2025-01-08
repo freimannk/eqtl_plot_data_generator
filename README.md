@@ -11,7 +11,7 @@ nextflow run main.nf -profile tartu_hpc -resume\
 ```
 studyFile has to contain columns: 
 * quant_method - ge/exon/tx/txrev/leafcutter
-* dataset_id
+* dataset_id (unique)
 * qtl_group	-  qtl_group in the study
 * credible_sets_file	- File to the credible_sets.parquet file from the qtlmap workflow (./susie/*credible_sets.parquet)
 * sample_meta	- Sample metadata file. Tab separated file
