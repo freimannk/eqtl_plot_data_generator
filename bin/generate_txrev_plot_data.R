@@ -4,7 +4,7 @@ suppressPackageStartupMessages(library("optparse"))
 #Parse command-line options
 option_list <- list(
   make_option(c("-f", "--finemap_susie"), type="character", default=NULL,
-              help="Purity filtered susie output. Tab separated file", metavar = "type"),
+              help="Purity filtered susie output. Parquet file", metavar = "type"),
   make_option(c("-s", "--sample_meta"), type="character", default=NULL,
               help="Sample metadata file. Tab separated file", metavar = "type"),
   make_option(c("-p", "--phenotype_meta"), type="character", default=NULL,
@@ -26,7 +26,11 @@ option_list <- list(
   make_option(c("-u", "--usage_matrix_norm"), type="character", default=NULL,
               help="Path to the normalised usage matrix", metavar = "type"),
   make_option(c("--div_scaling_factors"), type="character", default=NULL,
-              help="Path to the scaling_factors file", metavar = "type")
+              help="Path to the scaling_factors file", metavar = "type"),
+  make_option(c("--vcf_sample_bad_symbol"), type = "character", default = NULL,
+              help = "Bad symbol to replace in VCF sample names (default: none)", metavar = "type"),
+  make_option(c("--vcf_sample_replacement_symbol"), type = "character", default = NULL,
+              help = "Replacement symbol for bad VCF sample names (default: none)", metavar = "type")
 )
 
 message(" ## Parsing options")
@@ -135,6 +139,9 @@ gtf_file_path = opt$g
 txrev_gtf_file_path = opt$t
 norm_usage_matrix_path = opt$u
 scaling_factors_path = opt$div_scaling_factors
+vcf_sample_bad_symbol = opt$vcf_sample_bad_symbol
+vcf_sample_replacement_symbol = opt$vcf_sample_replacement_symbol
+
 
 message("######### Options: ######### ")
 message("######### Working Directory  : ", getwd())
@@ -181,8 +188,13 @@ message(" ## Reading mane_transcript_gene_map file")
 mane_transcript_gene_map <- readr::read_tsv(mane_transcript_gene_map_file)
 
 message(" ## Reading susie_purity_filtered file")
-highest_pip_vars_per_cs <- readr::read_tsv(file = susie_file_path, col_types = "cccicccccddddddddcccddccccd")
-
+highest_pip_vars_per_cs <- read_parquet(susie_file_path) 
+highest_pip_vars_per_cs$nominal_exon_cc_path <- lapply(highest_pip_vars_per_cs$nominal_exon_cc_path, function(x) {
+  strsplit(gsub("[\\[\\]'\" ]", "", x), ",")
+})
+highest_pip_vars_per_cs$nominal_cc_path <- lapply(highest_pip_vars_per_cs$nominal_cc_path, function(x) {
+  strsplit(gsub("[\\[\\]'\" ]", "", x), ",")
+})
 message(" ## Reading normalised usage matrix")
 norm_exp_df <- readr::read_tsv(norm_usage_matrix_path)
 
@@ -193,10 +205,7 @@ message(" ## Reading scaling_factors file")
 scaling_factor_data <- readr::read_tsv(scaling_factors_path, col_types = "cd") 
 
 start_time <- time_here(prev_time = start_time, message_text = " >> Read input TSVs in: ")
-if (is.null(study_name)) { 
-  assertthat::has_name(sample_metadata, "study" )
-  study_name <- sample_metadata$study[1] 
-}
+
 
 if(assertthat::assert_that(all(!is.na(phenotype_metadata$gene_id) & all(!is.na(phenotype_metadata$gene_name))), 
                            msg = "All gene_id's and gene_name's in phenotype_metadata should be non-NA")) {
@@ -209,17 +218,13 @@ variant_regions_vcf <- highest_pip_vars_per_cs %>%
 
 message(" ## Reading all variants from VCF_file")
 snps_all <- seqminer::tabix.read.table(vcf_file_path, variant_regions_vcf$region)
-if (study_name == "Steinberg_2020") {
-  names(snps_all) <- gsub(pattern = ".", replacement = ":", x = names(snps_all), fixed = T)
-}
-if (study_name == "Quach_2016") {
-  names(snps_all) <- gsub(pattern = ".", replacement = "@", x = names(snps_all), fixed = T)
-}
-if (study_name %in% c("Schmiedel_2018", "Bossini-Castillo_2019", "ROSMAP", "iPSCORE")) {
-  names(snps_all) <- gsub(pattern = "X", replacement = "", x = names(snps_all), fixed = T)  
-}
-if (study_name %in% c("iPSCORE")) {
-  names(snps_all) <- gsub(pattern = ".", replacement = "-", x = names(snps_all), fixed = T)  
+# Apply replacement if vcf sample_bad_symbol is not empty
+if (!is.null(vcf_sample_bad_symbol)) {
+  # Replace bad symbol with the replacement symbol
+  names(snps_all) <- gsub(pattern = vcf_sample_bad_symbol,
+                          replacement = vcf_sample_replacement_symbol,
+                          x = names(snps_all),
+                          fixed = TRUE)
 }
 message(" ## Reading all variants from VCF_file complete")
 
@@ -247,31 +252,19 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
     dplyr::filter(ID %in% variant_regions_vcf$variant) %>% 
     dplyr::arrange(CHROM, POS)
   
-  if (study_name == "Lepik_2017") {
-    var_genotype <- snps_filt %>% 
-      dplyr::select(-c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT")) %>% 
-      base::t() %>% 
-      BiocGenerics::as.data.frame() %>% 
-      dplyr::rename("GT_DS" = "V1") %>% 
-      dplyr::mutate(GT = gsub(pattern = "\\:.*", replacement = "", x = GT_DS)) %>% 
-      dplyr::mutate(REF = gsub(pattern = "\\/.*", replacement = "", x = GT)) %>% 
-      dplyr::mutate(ALT = gsub(pattern = ".*\\/", replacement = "", x = GT)) %>% 
-      dplyr::mutate(DS = as.numeric(REF) + as.numeric(ALT)) %>% 
-      dplyr::mutate(genotype_id = BiocGenerics::rownames(.)) %>% 
-      dplyr::mutate(genotype_id = gsub(pattern = "\\.", replacement = "-", x = genotype_id))
-  } else  {
-    var_genotype <- snps_filt %>% 
-      dplyr::select(-c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT")) %>% 
-      base::t() %>% 
-      BiocGenerics::as.data.frame() %>% 
-      dplyr::rename("GT_DS" = "V1") %>% 
-      dplyr::mutate(GT = gsub(pattern = "\\:.*", replacement = "", x = GT_DS)) %>% 
-      dplyr::mutate(REF = gsub(pattern = "\\|.*", replacement = "", x = GT)) %>% 
-      dplyr::mutate(ALT = gsub(pattern = ".*\\|", replacement = "", x = GT)) %>% 
-      dplyr::mutate(DS = as.numeric(REF) + as.numeric(ALT)) %>% 
-      dplyr::mutate(genotype_id = BiocGenerics::rownames(.)) %>% 
-      dplyr::mutate(genotype_id = gsub(pattern = "\\.", replacement = "-", x = genotype_id))
-  }
+
+  var_genotype <- snps_filt %>% 
+    dplyr::select(-c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT")) %>% 
+    base::t() %>% 
+    BiocGenerics::as.data.frame() %>% 
+    dplyr::rename("GT_DS" = "V1") %>% 
+    dplyr::mutate(GT = gsub(pattern = "\\:.*", replacement = "", x = GT_DS)) %>% 
+    dplyr::mutate(REF = gsub(pattern = "\\|.*", replacement = "", x = GT)) %>% 
+    dplyr::mutate(ALT = gsub(pattern = ".*\\|", replacement = "", x = GT)) %>% 
+    dplyr::mutate(DS = as.numeric(REF) + as.numeric(ALT)) %>% 
+    dplyr::mutate(genotype_id = BiocGenerics::rownames(.)) %>% 
+    dplyr::mutate(genotype_id = gsub(pattern = "\\.", replacement = "-", x = genotype_id))
+  
   
   sample_meta_clean = sample_metadata %>% 
     dplyr::filter(rna_qc_passed, genotype_qc_passed) %>%  

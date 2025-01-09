@@ -63,16 +63,11 @@ include { tabix_index } from './modules/utils'
 
 workflow {
     tabix_index(vcf_file_ch)
-    //recap_plot_ge(study_file_ch.ge.combine(tabix_index.out, by: 0).distinct())
-    //recap_plot_exon(study_file_ch.exon.combine(tabix_index.out, by: 0).distinct())
-    //recap_plot_leafcutter(study_file_ch.leafcutter.combine(tabix_index.out, by: 0).distinct())
-    //recap_plot_tx(study_file_ch.tx.combine(tabix_index.out, by: 0).distinct())
+    recap_plot_ge(study_file_ch.ge.combine(tabix_index.out, by: 0).distinct())
+    recap_plot_exon(study_file_ch.exon.combine(tabix_index.out, by: 0).distinct())
+    recap_plot_leafcutter(study_file_ch.leafcutter.combine(tabix_index.out, by: 0).distinct())
+    recap_plot_tx(study_file_ch.tx.combine(tabix_index.out, by: 0).distinct())
     recap_txrev_plot_data(study_file_ch.txrev.combine(tabix_index.out, by: 0).distinct())
-
-
-
-
-
 
 }
 

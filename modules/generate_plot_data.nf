@@ -158,6 +158,10 @@ process generate_plot_txrev_data {
     path "${dataset_id}_${qtl_group}_${quant_method}_${susie_purity_filtered.simpleName}.log", emit: log_file
 
     script:
+    vcf_sample_names_correction_bad_symbol = params.vcf_sample_names_correction ? "--vcf_sample_bad_symbol {$params.vcf_samples_old_string_part}" : ""
+    vcf_sample_names_correction_replaced_string = params.vcf_sample_names_correction ? "--vcf_sample_replacement_symbol {$params.vcf_samples_new_string_part}" : ""
+
+
     """
     Rscript $projectDir/bin/generate_txrev_plot_data.R \
         --name_of_study $dataset_id \
@@ -171,7 +175,7 @@ process generate_plot_txrev_data {
         --gtf_file $mane_gtf_file \
         --div_scaling_factors $scaling_factors \
         --txrev_gtf_file $txrev_gtf_file \
-        --usage_matrix_norm $usage_matrix_norm \
+        --usage_matrix_norm $usage_matrix_norm $vcf_sample_names_correction_bad_symbol $vcf_sample_names_correction_replaced_string
 
     cp .command.log ${dataset_id}_${qtl_group}_${quant_method}_${susie_purity_filtered.simpleName}.log
     """
