@@ -132,7 +132,7 @@ class Coverage(SerializableDF):
         # 1 -> cov_gt1
         # 2 -> cov_gt2
 
-        new_coverage.rename(columns={0: 'cov_gt0', 1: 'cov_gt1', 2: 'cov_gt2'}, inplace=True, errors='ignore')
+        new_coverage.rename(columns={"0": 'cov_gt0', "1": 'cov_gt1', "2": 'cov_gt2'}, inplace=True, errors='ignore')
         coverage = new_coverage.astype({'bins': int}, errors='raise')
 
         try:
