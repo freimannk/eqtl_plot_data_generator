@@ -15,27 +15,33 @@ process tabix_index {
     """
 }
 
-process split_into_batches {
+process prepare_batches {
     tag "${dataset_id}_${qtl_group}_${quant_method}"
     container "quay.io/kfkf33/polars"
     label "process_low"
 
     input:
-    tuple val(dataset_id), val(quant_method), val(qtl_group), file(susie_purity_filtered), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index)
+    tuple val(dataset_id), val(study_id), val(quant_method), val(qtl_group), val(study_name), file(susie_purity_filtered), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index)
 
     output:
     tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), emit: study_tsv_inputs_ch
     tuple val(dataset_id), val(quant_method), val(qtl_group), file("${dataset_id}_${qtl_group}_${quant_method}*.parquet"), emit: susie_batches
+    tuple val(study_id), val(dataset_id), val(quant_method), val(qtl_group), file("${study_id}_${dataset_id}_${qtl_group}_${quant_method}.parquet"), emit: dataset_id_credible_set_tables
 
     script:
     """
     $projectDir/bin/prepare_batches.py \
+        -a $study_name \
         -n $all_summ_stats_files \
         -e $exon_summ_stats_files \
         -s $susie_purity_filtered \
         -p $phenotype_meta \
         -c ${params.chunk_size} \
-        -o ${dataset_id}_${qtl_group}_${quant_method}
+        -d $dataset_id \
+        -i $study_id \
+        -q $quant_method \
+        -g $qtl_group
+        
     """
 }
 
@@ -56,7 +62,7 @@ process writeFileFromChannel {
     """
 }
 
-process generate_sqlite {
+process generate_dataset_ids_sqlites {
     tag "${dataset_id}"
     container "quay.io/kfkf33/eqtl_ploting:v2"
     publishDir "${params.outdir}/${dataset_id}_${qtl_group}_${quant_method}", mode: 'copy', overwrite: true, pattern: "*.sqlite"
@@ -70,8 +76,28 @@ process generate_sqlite {
 
     script:
     """
-    $projectDir/bin/generate_sqlites.py \
+    $projectDir/bin/generate_datasets_sqlites.py \
         -d $dataset_id \
         -s $directory_paths 
+    """
+}
+
+process generate_credible_sets_db {
+    tag "${dataset_id}"
+    container = 'quay.io/kfkf33/duckdb_sqlite_with_path:v1'
+    publishDir "${params.outdir}/${study_id}", mode: 'copy', overwrite: true, pattern: "*.sqlite"
+
+
+    input:
+    tuple val(study_id), val(datasets_cs)
+    
+
+    output:
+    path("*.sqlite")
+
+    script:
+    """
+    generate_credible_set_db.py -f ${datasets_cs.join(' ')} -o ${study_id}.sqlite
+
     """
 }
