@@ -56,9 +56,7 @@ process writeFileFromChannel {
 
     script:
     """
-    for file in ${files.join(" ")};do
-        echo \$file >> ${dataset_id}_${qtl_group}_${quant_method}_dir_paths.txt
-    done
+    echo "${files.join(" ")}" | grep -o '[^ ]*' > ${dataset_id}_${qtl_group}_${quant_method}_dir_paths.txt
     """
 }
 
