@@ -3,7 +3,7 @@
 
 import argparse
 import datetime
-from typing import List, Tuple, Any,Optional
+from typing import List, Tuple, Any, Optional
 import io
 import sqlite3
 from functools import lru_cache
@@ -37,7 +37,7 @@ def _bytes_to_pydict(serialized_bytes: SerializedParquet) -> Pydict:
 
 class SerializableDF(BaseModel):
     def _serialize_df(self) -> bytes:
-        #data = self.dict()
+        # data = self.dict()
         data = self.model_dump()
         serialized_bytes = _pydict_to_bytes(data)
         return serialized_bytes
@@ -157,8 +157,6 @@ class Coverage(SerializableDF):
             cov_gt2=None if 'cov_gt2' not in coverage.columns else coverage.cov_gt2.tolist(),
         )
 
-
-
     def _to_pydict(self) -> Pydict:
         data = {'bins': self.bins}
 
@@ -240,14 +238,16 @@ class SingleBoxPlot(BaseModel):
             'variant': [],
             'genotype_text': [],
             'norm_exp': [],
+            'tpm_exp': [],
         }
 
         genotypes = {'abs_gt0': 'genotype_0', 'abs_gt1': 'genotype_1', 'abs_gt2': 'genotype_2'}
 
         for genotype_key, genotype_text in genotypes.items():
             genotype_data = getattr(self, genotype_key)
+            norm_data = getattr(self, genotype_key.replace('abs', 'norm'))
             if genotype_data is not None:
-                for i in genotype_data:
+                for tpm_val, norm_val in zip(genotype_data, norm_data or [None] * len(genotype_data)):
                     data['molecular_trait_id'].append(self.molecular_trait_id)
                     data['pvalue'].append(self.pvalue)
                     data['beta'].append(self.beta)
@@ -255,7 +255,9 @@ class SingleBoxPlot(BaseModel):
                     data['maf'].append(self.maf)
                     data['variant'].append(self.variant)
                     data['genotype_text'].append(genotype_text)
-                    data['norm_exp'].append(i)
+                    data['norm_exp'].append(norm_val)
+                    data['tpm_exp'].append(tpm_val)
+
 
         return data
 
@@ -272,7 +274,7 @@ class Boxplot(BaseModel):
         return cls(boxplots=boxplots)
 
     @classmethod
-    def _df_to_boxplot_list(cls, box_plot_df: pd.DataFrame) -> list[SingleBoxPlot]:
+    def _df_to_boxplot_list(cls, box_plot_df: pd.DataFrame) -> list[SingleBoxPlot]: # TODO: check if intron data will be ok with only inv normalized data, do i need to sort?
         # rename intron_id or tx_id to molecular_trait_id
         if 'intron_id' in box_plot_df.columns:
             box_plot_df = box_plot_df.rename(columns={'intron_id': 'molecular_trait_id'})
@@ -287,18 +289,21 @@ class Boxplot(BaseModel):
         for key in intron_statistics:
             intron_statistics[key]['variant'] = intron_statistics[key]['snp_id']
             del intron_statistics[key]['snp_id']
-        box_plot_df = box_plot_df[['norm_exp', 'molecular_trait_id', 'genotype_text']]
+        box_plot_df = box_plot_df[['norm_exp', 'tpm_exp', 'molecular_trait_id', 'genotype_text']]
         # we sort by norm_exp as well to make sure we don't accidentally leak the original order
         box_plot_df = box_plot_df.sort_values(by=['molecular_trait_id', 'genotype_text', 'norm_exp'])
-        for group, df in box_plot_df.groupby(['molecular_trait_id', 'genotype_text'],observed=False):
+
+        for group, df in box_plot_df.groupby(['molecular_trait_id', 'genotype_text'], observed=False):
             molecular_trait_id, genotype = group
             norm_exp_values = df['norm_exp'].tolist()
+            tpm_exp_values = df['tpm_exp'].tolist()
             if molecular_trait_id not in intron_statistics:
                 continue
             # let's take the previously collected metadata and get a reference to it
             boxplot = intron_statistics[molecular_trait_id]
             # add the exp_values in the format we expect
-            boxplot[f'abs_gt{genotype}'] = norm_exp_values
+            boxplot[f'abs_gt{genotype}'] = tpm_exp_values
+            boxplot[f'norm_gt{genotype}'] = norm_exp_values
         boxplots = []
         for molecular_trait_id, boxplot in intron_statistics.items():
             boxplots.append(SingleBoxPlot(**boxplot))
@@ -315,7 +320,8 @@ class Boxplot(BaseModel):
             'maf': [],
             'variant': [],
             'genotype_text': [],
-            'norm_exp': []
+            'norm_exp': [],
+            'tpm_exp': []
         }
         for boxplot in self.boxplots:
             boxplot_data = boxplot._to_pydict()
@@ -352,6 +358,9 @@ class Boxplot(BaseModel):
             # Add the norm_exp value to the corresponding genotype list
             genotype_key = data["genotype_text"][idx]
             temp_boxplots[molecular_trait_id][genotype_key].append(data['norm_exp'][idx])
+            temp_boxplots[molecular_trait_id][f"{genotype_key}_tpm"] = temp_boxplots[molecular_trait_id].get(
+                f"{genotype_key}_tpm", [])
+            temp_boxplots[molecular_trait_id][f"{genotype_key}_tpm"].append(data['tpm_exp'][idx])
 
         # Convert the temp_boxplots dictionary to a list of Boxplot objects
         for molecular_trait_id, boxplot_data in temp_boxplots.items():
@@ -364,7 +373,10 @@ class Boxplot(BaseModel):
                 variant=boxplot_data['variant'],
                 abs_gt0=boxplot_data['genotype_0'] or None,
                 abs_gt1=boxplot_data['genotype_1'] or None,
-                abs_gt2=boxplot_data['genotype_2'] or None
+                abs_gt2=boxplot_data['genotype_2'] or None,
+                norm_gt0=boxplot_data.get('genotype_0') or None,
+                norm_gt1=boxplot_data.get('genotype_1') or None,
+                norm_gt2=boxplot_data.get('genotype_2') or None,
             )
             boxplots.append(boxplot)
 
@@ -381,9 +393,9 @@ class Boxplot(BaseModel):
         return cls._from_pydict(box_plot_df)
 
 
-class SerializedApiData(BaseModel): 
+class SerializedApiData(BaseModel):
     gene_id: str
-    credible_set_id:str
+    credible_set_id: str
     molecular_trait_id: str
     variant: str
     gene_name: str
@@ -430,7 +442,8 @@ class ApiData(BaseModel):
         exon_sumstats = Exon_sumstats._from_directory(directory_path)
         box_plot = Boxplot._from_directory(directory_path)
 
-        return ApiData(meta=meta, transcript_anno=transcript_anno, coverage=coverage, exon_sumstats=exon_sumstats, boxplot=box_plot)
+        return ApiData(meta=meta, transcript_anno=transcript_anno, coverage=coverage, exon_sumstats=exon_sumstats,
+                       boxplot=box_plot)
 
     def serialize(self) -> SerializedApiData:
 
@@ -441,7 +454,7 @@ class ApiData(BaseModel):
 
         return SerializedApiData(
             gene_id=self.meta.gene_id,
-            credible_set_id= self.meta.credible_set_id,
+            credible_set_id=self.meta.credible_set_id,
             molecular_trait_id=self.meta.molecular_trait_id,
             variant=self.meta.variant,
             gene_name=self.meta.gene_name,
@@ -523,6 +536,7 @@ class ApiData(BaseModel):
         else:
             return None
 
+
 def get_database_stem(file_name: str):
     return Path(file_name).name.removeprefix('plot_data_').removesuffix('.tar.gz')
 
@@ -555,6 +569,7 @@ def get_df_from_directory(dir_path: Path, df_name: str):
     df = pd.read_parquet(parquet_file_path)
     return df
 
+
 def initialize_database(conn_path: str | Path) -> None:
     """Initialize the database with main and metadata tables."""
     # Create a connection to the database
@@ -562,7 +577,7 @@ def initialize_database(conn_path: str | Path) -> None:
     # Create the main table
     conn.execute('''CREATE TABLE main
                  (id INTEGER PRIMARY KEY,
-                 
+
                  -- this quadruplet is the pseudokey for this table
                  -- dataset, molecular_trait, variant defines the row
                  -- credible_set is defined by the dataset and molecular_trait, so credible (credible_set, variant) also define the row
@@ -570,14 +585,14 @@ def initialize_database(conn_path: str | Path) -> None:
                  credible_set_id TEXT NOT NULL,
                  molecular_trait_id TEXT NOT NULL,
                  variant TEXT NOT NULL,
-                 
+
                  -- these are metadata for the API endpoint
                  gene_id TEXT NOT NULL,
                  gene_name TEXT NOT NULL,
                  x_limit INTEGER NOT NULL,
                  y_limit INTEGER NOT NULL,
-                 
-                 
+
+
                  tx_structure_serialized BLOB NOT NULL,
                  coverage_serialized BLOB NOT NULL,
                  nom_exon_cc_serialized BLOB,
@@ -611,6 +626,7 @@ def write_batch_data_to_main_table(conn: sqlite3.Connection, data_list: List[Tup
     ''', data_list)
     conn.commit()
 
+
 def process_directory_files(directory_path: Path) -> SerializedApiData:
     """Process gzipped files and return serialized data."""
     try:
@@ -620,6 +636,7 @@ def process_directory_files(directory_path: Path) -> SerializedApiData:
     except Exception as e:
         print(f"Error occurred while processing '{directory_path}': {e}")
         raise
+
 
 def process_and_write(directory_containing_pqs, conn, dataset_id):
     data = process_directory_files(directory_path=directory_containing_pqs)
@@ -640,7 +657,7 @@ def process_and_write(directory_containing_pqs, conn, dataset_id):
     write_batch_data_to_main_table(conn, [output_row])
 
 
-def main(dataset_id,dir_paths) -> None:
+def main(dataset_id, dir_paths) -> None:
     dir_paths_df = pd.read_csv(dir_paths, header=None, names=["path"])
     TARGET_DB = f'{dataset_id}.sqlite'
     initialize_database(TARGET_DB)
@@ -651,15 +668,14 @@ def main(dataset_id,dir_paths) -> None:
     conn.commit()
     conn.close()
 
+
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d','--dataset_id', required=True, type=str, help="Dataset ID") 
-    parser.add_argument('-s', '--source_root_file', required=True, type=str, help="File with  paths to the directories containing parquet files.")
+    parser.add_argument('-d', '--dataset_id', required=True, type=str, help="Dataset ID")
+    parser.add_argument('-s', '--source_root_file', required=True, type=str,
+                        help="File with  paths to the directories containing parquet files.")
 
-    args = parser.parse_args() 
-
+    args = parser.parse_args()
     dataset_id = args.dataset_id
     source_roots = args.source_root_file
     main(dataset_id, source_roots)
-
