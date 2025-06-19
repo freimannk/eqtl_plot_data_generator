@@ -26,4 +26,3 @@ studyFile has to contain columns:
 * pheno_meta - Phenotype metadata file. Tab separated file
 * scaling_factors - Path to the scaling_factors file
 
-dataset_id	study_id	quant_method	qtl_group	study_name	credible_sets_file	sample_meta	vcf_file	bigwig_path	usage_matrix_norm	tpm_matrix	exon_summ_stats_files	all_summ_stats_files	pheno_meta	scaling_factors
