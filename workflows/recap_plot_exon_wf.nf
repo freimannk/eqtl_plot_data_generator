@@ -13,13 +13,15 @@ include { generate_plot_exon_data } from  '../modules/generate_plot_data'
 include { prepare_batches } from  '../modules/utils'
 include { writeFileFromChannel } from '../modules/utils'
 include { generate_dataset_ids_sqlites } from '../modules/utils'
+include { convert_parquet_format } from '../modules/utils'
 
 workflow recap_plot_exon {
     take: 
     study_tsv_inputs_ch
     
     main:
-    prepare_batches(study_tsv_inputs_ch)
+    convert_parquet_format(study_tsv_inputs_ch)
+    prepare_batches(convert_parquet_format.out.converted_study_input)
 
     generate_plot_exon_data(
         prepare_batches.out.study_tsv_inputs_ch.combine(prepare_batches.out.susie_batches.transpose(), by:[0,1,2]),

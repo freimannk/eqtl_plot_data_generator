@@ -1,5 +1,12 @@
 message(" ## Loading libraries: optparse")
 suppressPackageStartupMessages(library("optparse"))
+message(" ## Loading libraries: devtools, dplyr, SummarizedExperiment, cqn, data.table")
+suppressPackageStartupMessages(library("dplyr"))
+suppressPackageStartupMessages(library("SummarizedExperiment"))
+suppressPackageStartupMessages(library("readr"))
+suppressPackageStartupMessages(library("seqminer"))
+suppressPackageStartupMessages(library("arrow"))
+suppressPackageStartupMessages(library("tidyr"))
 
 #Parse command-line options
 option_list <- list(
@@ -9,8 +16,6 @@ option_list <- list(
               help="Sample metadata file. Tab separated file", metavar = "type"),
   make_option(c("-q", "--qtl_group"), type="character", default=NULL,
               help="The selected qtl_group in the study", metavar = "type"),
-  make_option(c("-n", "--name_of_study"), type="character", default=NULL,
-              help="Name of the study. Optional", metavar = "type"),
   make_option(c("-v", "--vcf_file"), type="character", default=NULL,
               help="TPM quantile TSV file with phenotype_id column", metavar = "type"),
   make_option(c("-b", "--bigwig_path"), type="character", default=NULL,
@@ -21,41 +26,23 @@ option_list <- list(
               help="Path to the GTF file to get exons of transcripts", metavar = "type"),
   make_option(c("-u", "--usage_matrix_norm"), type="character", default=NULL,
               help="Path to the normalised usage matrix", metavar = "type"),
+  make_option(c("--tpm_matrix"), type="character", default=NULL,
+              help="Path to the TPM matrix", metavar = "type"),
   make_option(c("--div_scaling_factors"), type="character", default=NULL,
-              help="Path to the scaling_factors file", metavar = "type")
+              help="Path to the scaling_factors file", metavar = "type"),
+  make_option(c("--vcf_sample_bad_symbol"), type = "character", default = NULL,
+              help = "Bad symbol to replace in VCF sample names (default: none)", metavar = "type"),
+  make_option(c("--vcf_sample_replacement_symbol"), type = "character", default = NULL,
+              help = "Replacement symbol for bad VCF sample names (default: none)", metavar = "type")
 )
 
 message(" ## Parsing options")
 opt <- optparse::parse_args(OptionParser(option_list=option_list))
 
-message(" ## Loading libraries: devtools, dplyr, SummarizedExperiment, cqn, data.table")
-suppressPackageStartupMessages(library("dplyr"))
-suppressPackageStartupMessages(library("SummarizedExperiment"))
-suppressPackageStartupMessages(library("readr"))
-suppressPackageStartupMessages(library("seqminer"))
-suppressPackageStartupMessages(library("arrow"))
-suppressPackageStartupMessages(library("tidyr"))
-
-
 make_transcript_exon_granges <- function(gff, transcript_ids, add_gene = FALSE) {
   exon_list <- list()
   for (transcript_id in transcript_ids) {
     transcript_exons_temp <- gff[(base::gsub("\\..*","",SummarizedExperiment::elementMetadata(gff)[,"transcript_id"]) == transcript_id)]
-    gene_id = transcript_exons_temp$gene_name[1]
-    if (add_gene) {
-      exon_list[[paste0("GENE:", gene_id, ":", transcript_id)]] <- transcript_exons_temp
-    } else {
-      exon_list[[transcript_id]] <- transcript_exons_temp
-    }
-  }
-  exon_list <- rlist::list.clean(exon_list, function(x) length(x) == 0L, recursive = TRUE)
-  return(exon_list)
-}
-
-make_transcript_exon_granges_ccds <- function(gff, transcript_ids, add_gene = FALSE) {
-  exon_list <- list()
-  for (transcript_id in transcript_ids) {
-    transcript_exons_temp <- gff[(base::gsub("\\..*","",SummarizedExperiment::elementMetadata(gff)[,"transcript_id"]) == transcript_id & !is.na(SummarizedExperiment::elementMetadata(gff)[,"ccds_id"]))]
     gene_id = transcript_exons_temp$gene_name[1]
     if (add_gene) {
       exon_list[[paste0("GENE:", gene_id, ":", transcript_id)]] <- transcript_exons_temp
@@ -88,25 +75,45 @@ prepareTranscriptStructureForPlotting <- function(exon_ranges, cds_ranges, trans
   return(transcript_struct)
 }
 
-read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id) {
+filter_trait_matrix <- function(unique_trait_ids, trait_matrix_pq_file, tpm_matrix) {
+  trait_dataset <- open_dataset(trait_matrix_pq_file)
+  filtered_traits_dataset <- trait_dataset %>%
+    filter(phenotype_id %in% unique_trait_ids)
+  traits_df <- collect(filtered_traits_dataset)
+  return(traits_df)
+}
+
+format_trait_matrix <- function(trait_matrix_oi, column_name,value_type_id) {
+  trait_matrix_oi <- tibble::column_to_rownames(.data = trait_matrix_oi,var = "phenotype_id")
+  trait_matrix_oi <- trait_matrix_oi %>% base::t() %>% 
+    GenomicRanges::as.data.frame() %>% 
+    tibble::rownames_to_column(var = "sample_id")
+  trait_matrix_oi <- trait_matrix_oi %>% 
+    tidyr::pivot_longer(cols = -sample_id, names_to=value_type_id, values_to = column_name)
+  return(trait_matrix_oi)
+}
+
+read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id,is_exon_cc) {
   if (!is.vector(file_list) || length(file_list) == 0) {
     stop("file_list must be a non-empty vector of file names.")
   }
   total_files <- length(file_list)
   i=1
-
+  
   for (file_name in file_list) {
     if (!file.exists(file_name)) {
       warning(paste("File not found:", file_name))
       next
     }
-
+    
     dataset <- open_dataset(file_name)
-
+    
+    trait_column <- if (is_exon_cc) "molecular_trait_object_id" else "molecular_trait_id"
+    # Dynamically filter using the chosen column
     filtered_data <- dataset %>%
-      filter(variant == variant_to_match & molecular_trait_object_id == phenotype_id) %>%
+      filter(variant == variant_to_match, !!sym(trait_column) == phenotype_id) %>%
       collect()
-
+    
     if (nrow(filtered_data) > 0) {
       return(filtered_data)
     }
@@ -117,38 +124,24 @@ read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id) {
   }
 }
 
-#Debugging
-if (FALSE) {
-  opt = list()
-  opt$n = "testdata_GEUVADIS"
-  opt$f = "/Users/kristaf/PycharmProjects/trans_eQTL/COV_plot/pipeline/output/batch_QTD000110_1_1.parquet"
-  opt$s = "./testdata/testfiles_debugging/GEUVADIS.tsv"
-  opt$q = "LCL"
-  opt$v = "./testdata/testfiles_debugging/GEUVADIS_testdata_plotting_wf.vcf.gz"
-  opt$b = "./testdata/testfiles_debugging/bigwig"
-  opt$m = "./testdata/testfiles_debugging/MANE_transcript_gene_map.txt"
-  opt$g = "./testdata/testfiles_debugging/Homo_sapiens.GRCh38.105.gtf"
-  opt$div_scaling_factors = "./testdata/testfiles_debugging/GEUVADIS.LCL.scaling_factors_testdata.tsv.gz"
-  opt$u = "./testdata/testfiles_debugging/GEUVADIS.LCL.testdata_ge_matrix.tsv.gz"
-}
-
 susie_file_path = opt$f
 sample_meta_path = opt$s
 qtl_group_in = opt$q
-study_name = opt$n # TODO:can remove it!
 vcf_file_path = opt$v
 bigwig_files_path = opt$b
 mane_transcript_gene_map_file = opt$m
 gtf_file_path = opt$g
 norm_usage_matrix_path = opt$u
+tpm_matrix_path = opt$tpm_matrix
 scaling_factors_path = opt$div_scaling_factors
+vcf_sample_bad_symbol = opt$vcf_sample_bad_symbol
+vcf_sample_replacement_symbol = opt$vcf_sample_replacement_symbol
 
 message("######### Options: ######### ")
 message("######### Working Directory  : ", getwd())
 message("######### qtl_group          : ", qtl_group_in)
 message("######### susie_file_path    : ", susie_file_path)
 message("######### sample_meta_path   : ", sample_meta_path)
-message("######### opt_study_name     : ", study_name)
 message("######### vcf_file_path      : ", vcf_file_path)
 message("######### bigwig_files_path  : ", bigwig_files_path)
 message("######### mane_map_file_path : ", mane_transcript_gene_map_file)
@@ -197,18 +190,19 @@ highest_pip_vars_per_cs$nominal_cc_path <- lapply(highest_pip_vars_per_cs$nomina
 })
 
 message(" ## Reading normalised usage matrix")
-norm_exp_df <- readr::read_tsv(norm_usage_matrix_path)
+trait_ids <- unique(highest_pip_vars_per_cs$molecular_trait_id)
+norm_exp_df <- filter_trait_matrix(trait_ids, norm_usage_matrix_path, tpm_matrix = FALSE)
+tpm_exp_df <- filter_trait_matrix(trait_ids, tpm_matrix_path, tpm_matrix = TRUE)
+
+
+
+###norm_exp_df <- readr::read_tsv(norm_usage_matrix_path)
 
 
 message(" ## Reading scaling_factors file")
 scaling_factor_data <- readr::read_tsv(scaling_factors_path, col_types = "cd") 
 
 start_time <- time_here(prev_time = start_time, message_text = " >> Read input TSVs in: ")
-
-if (is.null(study_name)) { 
-  assertthat::has_name(sample_metadata, "study" )
-  study_name <- sample_metadata$study[1] 
-}
 
 
 variant_regions_vcf <- highest_pip_vars_per_cs %>% 
@@ -217,24 +211,21 @@ variant_regions_vcf <- highest_pip_vars_per_cs %>%
 
 message(" ## Reading all variants from VCF_file")
 snps_all <- seqminer::tabix.read.table(vcf_file_path, variant_regions_vcf$region)
-if (study_name == "Steinberg_2020") {
-  names(snps_all) <- gsub(pattern = ".", replacement = ":", x = names(snps_all), fixed = T)
+
+# Apply replacement if vcf sample_bad_symbol is not empty
+if (!is.null(vcf_sample_bad_symbol)) {
+  # Replace bad symbol with the replacement symbol
+  names(snps_all) <- gsub(pattern = vcf_sample_bad_symbol,
+                          replacement = vcf_sample_replacement_symbol,
+                          x = names(snps_all),
+                          fixed = TRUE)
 }
-if (study_name == "Quach_2016") {
-  names(snps_all) <- gsub(pattern = ".", replacement = "@", x = names(snps_all), fixed = T)
-}
-if (study_name %in% c("Schmiedel_2018", "Bossini-Castillo_2019", "ROSMAP", "iPSCORE")) {
-  names(snps_all) <- gsub(pattern = "X", replacement = "", x = names(snps_all), fixed = T)  
-}
-if (study_name %in% c("iPSCORE")) {
-  names(snps_all) <- gsub(pattern = ".", replacement = "-", x = names(snps_all), fixed = T)  
-}
+
 message(" ## Reading all variants from VCF_file complete")
 
 start_time <- time_here(prev_time = start_time, message_text = " >> seqminer tabix took: ")
 
 message(" ## Will plot batch of ", nrow(highest_pip_vars_per_cs), " highest pip per credible set signals.")
-
 
 
 for (index in 1:nrow(highest_pip_vars_per_cs)) {
@@ -293,8 +284,9 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   nom_exon_cc_sumstats_all <- read_and_filter_parquet( 
     file_list = ss_oi$nominal_exon_cc_path[[1]], 
     variant_to_match = ss_oi$variant,
-    phenotype_id=ss_oi$gene_id
-    )
+    phenotype_id=ss_oi$gene_id,
+    is_exon_cc=TRUE
+  )
   # Extract the QTLs of exons according to gene and variant of interest
   nom_exon_cc_sumstats_filt <- nom_exon_cc_sumstats_all %>% 
     dplyr::filter(rsid == rsid[1]) %>% # if variant has more than one rsid keep only the first unique rsid 
@@ -307,7 +299,7 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   
   # Generate the output path 
   signal_name <- paste0(gsub(pattern = ":", replacement = "_", x = ss_oi$molecular_trait_id), "___", ss_oi$variant)
-
+  
   exons_to_plot <- list()
   exon_cdss_to_plot <- list()
   if (nrow(nom_exon_cc_sumstats_filt) > 0) {
@@ -356,14 +348,11 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   # permute the rows so that it becomes anonymous
   coverage_data_list$coverage_df <- coverage_data_list$coverage_df[sample(nrow(coverage_data_list$coverage_df)),]
   
-  
   norm_exp_df_oi <- norm_exp_df %>% dplyr::filter(phenotype_id %in% ss_oi$molecular_trait_id)
-  norm_exp_df_oi <- tibble::column_to_rownames(.data = norm_exp_df_oi,var = "phenotype_id")
-  norm_exp_df_oi <- norm_exp_df_oi %>% base::t() %>% 
-    GenomicRanges::as.data.frame() %>% 
-    tibble::rownames_to_column(var = "sample_id")
-  norm_exp_df_oi <- norm_exp_df_oi %>% 
-    tidyr::pivot_longer(cols = -sample_id, names_to="tx_id", values_to = "norm_exp")
+  norm_exp_df_oi = format_trait_matrix(norm_exp_df_oi, "norm_exp","tx_id")
+  
+  tpm_exp_df_oi <- tpm_exp_df %>% dplyr::filter(phenotype_id %in% ss_oi$molecular_trait_id)
+  tpm_exp_df_oi = format_trait_matrix(tpm_exp_df_oi, "tpm_exp","tx_id")
   
   track_data_study_box <- track_data_study %>% 
     dplyr::mutate(genotype_text = as.factor(colour_group)) %>% 
@@ -373,15 +362,17 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
     dplyr::mutate(snp_id = ss_oi$variant) 
   
   track_data_study_box <- norm_exp_df_oi %>%  
-    dplyr::left_join(track_data_study_box, by = "sample_id") %>% 
-    dplyr::mutate(is_significant = tx_id == ss_oi$molecular_trait_id)
-  
+    dplyr::left_join(track_data_study_box, by = "sample_id") 
+  track_data_study_box <- track_data_study_box %>%  
+    dplyr::left_join(tpm_exp_df_oi, by = c("sample_id", "tx_id"))
+
   message(" ## Filter nominal summstats")
   
   nom_cc_sumstats <- read_and_filter_parquet( 
     file_list = ss_oi$nominal_cc_path[[1]],
     variant_to_match = ss_oi$variant,
-    phenotype_id=ss_oi$molecular_trait_id
+    phenotype_id=ss_oi$molecular_trait_id,
+    is_exon_cc=FALSE
   )
   
   # Keep only 1 rsid per variant per molecular_trait_id
@@ -395,14 +386,10 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
     dplyr::rename(tx_id = molecular_trait_id)
   
   track_data_study_box_wrap <- track_data_study_box %>% 
-    dplyr::left_join(nom_cc_sumstats_filt, by = "tx_id") %>% 
-    dplyr::mutate(stats_text = paste0("Pval: ", pvalue, "			BETA: ", beta, 
-                                      "\nSE: ", se)) %>% 
-    dplyr::mutate(tx_id_with_stats = paste0(tx_id, "\n", stats_text))
+    dplyr::left_join(nom_cc_sumstats_filt, by = "tx_id") 
   
-  start_time <- time_here(prev_time = start_time, message_text = " >> until boxplot ready: ")
   track_data_study_box_wrap_for_RDS <- track_data_study_box_wrap %>%
-    dplyr::select(genotype_text, norm_exp, is_significant, tx_id, pvalue, beta, se, snp_id, maf)
+    dplyr::select(genotype_text, norm_exp,tpm_exp, tx_id, pvalue, beta, se, snp_id, maf)
   
   track_data_study_box_wrap_for_RDS <- track_data_study_box_wrap_for_RDS[sample(nrow(track_data_study_box_wrap_for_RDS)),]
   
@@ -427,7 +414,7 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   arrow::write_parquet(tx_str_df, file.path(output_path, paste0("tx_str_", signal_name, ".parquet")))
   
   arrow::write_parquet(track_data_study_box_wrap_for_RDS, file.path(output_path, paste0("box_plot_df_", signal_name, ".parquet")))
-
+  
   arrow::write_parquet(ss_oi, file.path(output_path, paste0("ss_oi_df_", signal_name, ".parquet")))
   
   # Ensure 'rsid' column is trimmed

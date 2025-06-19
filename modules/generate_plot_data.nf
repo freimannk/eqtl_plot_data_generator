@@ -6,7 +6,7 @@ process generate_plot_ge_data {
 
 
     input:
-    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
+    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
     path mane_transcript_gene_map
     path mane_gtf_file
 
@@ -18,7 +18,6 @@ process generate_plot_ge_data {
     script:
     """
     Rscript $projectDir/bin/generate_plot_ge_data.R \
-        --name_of_study $dataset_id \
         --qtl_group $qtl_group \
         --finemap_susie $susie_purity_filtered \
         --sample_meta $sample_meta \
@@ -27,7 +26,8 @@ process generate_plot_ge_data {
         --mane_transcript_gene_map $mane_transcript_gene_map \
         --gtf_file $mane_gtf_file \
         --div_scaling_factors $scaling_factors \
-        --usage_matrix_norm $usage_matrix_norm
+        --usage_matrix_norm $usage_matrix_norm \
+        --tpm_matrix $tpm_matrix
 
     cp .command.log ${dataset_id}_${qtl_group}_${quant_method}_${susie_purity_filtered.simpleName}.log
     """
@@ -41,7 +41,7 @@ process generate_plot_exon_data {
 
 
     input:
-    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
+    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
     path mane_transcript_gene_map
     path mane_gtf_file
 
@@ -53,7 +53,6 @@ process generate_plot_exon_data {
     script:
     """
     Rscript $projectDir/bin/generate_plot_exon_data.R \
-        --name_of_study $dataset_id \
         --qtl_group $qtl_group \
         --phenotype_meta $phenotype_meta \
         --finemap_susie $susie_purity_filtered \
@@ -63,7 +62,8 @@ process generate_plot_exon_data {
         --mane_transcript_gene_map $mane_transcript_gene_map \
         --gtf_file $mane_gtf_file \
         --div_scaling_factors $scaling_factors \
-        --usage_matrix_norm $usage_matrix_norm
+        --usage_matrix_norm $usage_matrix_norm \
+        --tpm_matrix $tpm_matrix
 
     cp .command.log ${dataset_id}_${qtl_group}_${quant_method}_${susie_purity_filtered.simpleName}.log
     """
@@ -76,7 +76,7 @@ process generate_plot_leafcutter_data {
 
 
     input:
-    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
+    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
     path mane_transcript_gene_map
     path mane_gtf_file
 
@@ -87,9 +87,7 @@ process generate_plot_leafcutter_data {
 
     script:
     """
-    
     Rscript $projectDir/bin/generate_leafcutter_plot_data.R \
-        --name_of_study $dataset_id \
         --qtl_group $qtl_group \
         --phenotype_meta $phenotype_meta \
         --finemap_susie $susie_purity_filtered \
@@ -99,7 +97,8 @@ process generate_plot_leafcutter_data {
         --mane_transcript_gene_map $mane_transcript_gene_map \
         --gtf_file $mane_gtf_file \
         --div_scaling_factors $scaling_factors \
-        --usage_matrix_norm $usage_matrix_norm
+        --usage_matrix_norm $usage_matrix_norm \
+        --tpm_matrix $tpm_matrix
 
     cp .command.log ${dataset_id}_${qtl_group}_${quant_method}_${susie_purity_filtered.simpleName}.log
     """
@@ -112,7 +111,7 @@ process generate_plot_tx_data {
 
 
     input:
-    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
+    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
     path mane_transcript_gene_map
     path mane_gtf_file
     path tx_gtf_file
@@ -123,8 +122,8 @@ process generate_plot_tx_data {
 
     script:
     """
+
     Rscript $projectDir/bin/generate_tx_plot_data.R \
-        --name_of_study $dataset_id \
         --qtl_group $qtl_group \
         --finemap_susie $susie_purity_filtered \
         --sample_meta $sample_meta \
@@ -136,6 +135,7 @@ process generate_plot_tx_data {
         --div_scaling_factors $scaling_factors \
         --tx_gtf_file $tx_gtf_file \
         --usage_matrix_norm $usage_matrix_norm \
+        --tpm_matrix $tpm_matrix
 
     cp .command.log ${dataset_id}_${qtl_group}_${quant_method}_${susie_purity_filtered.simpleName}.log
     """
@@ -148,7 +148,7 @@ process generate_plot_txrev_data {
 
 
     input:
-    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
+    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm), file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), file(susie_purity_filtered)
     path mane_transcript_gene_map
     path mane_gtf_file
     path txrev_gtf_file
@@ -163,8 +163,8 @@ process generate_plot_txrev_data {
 
 
     """
+
     Rscript $projectDir/bin/generate_txrev_plot_data.R \
-        --name_of_study $dataset_id \
         --qtl_group $qtl_group \
         --finemap_susie $susie_purity_filtered \
         --sample_meta $sample_meta \
@@ -175,6 +175,7 @@ process generate_plot_txrev_data {
         --gtf_file $mane_gtf_file \
         --div_scaling_factors $scaling_factors \
         --txrev_gtf_file $txrev_gtf_file \
+        --tpm_matrix $tpm_matrix \
         --usage_matrix_norm $usage_matrix_norm $vcf_sample_names_correction_bad_symbol $vcf_sample_names_correction_replaced_string
 
     cp .command.log ${dataset_id}_${qtl_group}_${quant_method}_${susie_purity_filtered.simpleName}.log

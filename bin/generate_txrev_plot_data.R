@@ -1,5 +1,12 @@
 message(" ## Loading libraries: optparse")
 suppressPackageStartupMessages(library("optparse"))
+message(" ## Loading libraries: devtools, dplyr, SummarizedExperiment, cqn, data.table")
+suppressPackageStartupMessages(library("dplyr"))
+suppressPackageStartupMessages(library("SummarizedExperiment"))
+suppressPackageStartupMessages(library("readr"))
+suppressPackageStartupMessages(library("ggplot2"))
+suppressPackageStartupMessages(library("seqminer"))
+suppressPackageStartupMessages(library("arrow"))
 
 #Parse command-line options
 option_list <- list(
@@ -11,8 +18,6 @@ option_list <- list(
               help="Phenotype metadata file. Tab separated file", metavar = "type"),
   make_option(c("-q", "--qtl_group"), type="character", default=NULL,
               help="The selected qtl_group in the study", metavar = "type"),
-  make_option(c("-n", "--name_of_study"), type="character", default=NULL,
-              help="Name of the study. Optional", metavar = "type"),
   make_option(c("-v", "--vcf_file"), type="character", default=NULL,
               help="TPM quantile TSV file with phenotype_id column", metavar = "type"),
   make_option(c("-b", "--bigwig_path"), type="character", default=NULL,
@@ -25,6 +30,8 @@ option_list <- list(
               help="Path to the GTF file to get exons of txrev transcripts", metavar = "type"),
   make_option(c("-u", "--usage_matrix_norm"), type="character", default=NULL,
               help="Path to the normalised usage matrix", metavar = "type"),
+  make_option(c("--tpm_matrix"), type="character", default=NULL,
+              help="Path to the TPM matrix", metavar = "type"),
   make_option(c("--div_scaling_factors"), type="character", default=NULL,
               help="Path to the scaling_factors file", metavar = "type"),
   make_option(c("--vcf_sample_bad_symbol"), type = "character", default = NULL,
@@ -36,30 +43,10 @@ option_list <- list(
 message(" ## Parsing options")
 opt <- optparse::parse_args(OptionParser(option_list=option_list))
 
-message(" ## Loading libraries: devtools, dplyr, SummarizedExperiment, cqn, data.table")
-suppressPackageStartupMessages(library("dplyr"))
-suppressPackageStartupMessages(library("SummarizedExperiment"))
-suppressPackageStartupMessages(library("readr"))
-suppressPackageStartupMessages(library("ggplot2"))
-suppressPackageStartupMessages(library("seqminer"))
-suppressPackageStartupMessages(library("arrow"))
-
-
 make_transcript_exon_granges <- function(gff, transcript_ids) {
   exon_list <- list()
   for (transcript_id in transcript_ids) {
     transcript_exons_temp <- gff[(base::gsub("\\..*","",SummarizedExperiment::elementMetadata(gff)[,"transcript_id"]) == transcript_id)]
-    gene_id = transcript_exons_temp$gene_name[1]
-    exon_list[[paste0("GENE:", gene_id, ":", transcript_id)]] <- transcript_exons_temp
-  }
-  exon_list <- rlist::list.clean(exon_list, function(x) length(x) == 0L, recursive = TRUE)
-  return(exon_list)
-}
-
-make_transcript_exon_granges_ccds <- function(gff, transcript_ids) {
-  exon_list <- list()
-  for (transcript_id in transcript_ids) {
-    transcript_exons_temp <- gff[(base::gsub("\\..*","",SummarizedExperiment::elementMetadata(gff)[,"transcript_id"]) == transcript_id & !is.na(SummarizedExperiment::elementMetadata(gff)[,"ccds_id"]))]
     gene_id = transcript_exons_temp$gene_name[1]
     exon_list[[paste0("GENE:", gene_id, ":", transcript_id)]] <- transcript_exons_temp
   }
@@ -98,7 +85,25 @@ prepareTranscriptStructureForPlotting <- function(exon_ranges, cds_ranges, trans
   return(transcript_struct)
 }
 
-read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id) {
+filter_trait_matrix <- function(unique_trait_ids, trait_matrix_pq_file, tpm_matrix) {
+  trait_dataset <- open_dataset(trait_matrix_pq_file)
+  filtered_traits_dataset <- trait_dataset %>%
+    filter(phenotype_id %in% unique_trait_ids)
+  traits_df <- collect(filtered_traits_dataset)
+  return(traits_df)
+}
+
+format_trait_matrix <- function(trait_matrix_oi, column_name,value_type_id) {
+  trait_matrix_oi <- tibble::column_to_rownames(.data = trait_matrix_oi,var = "phenotype_id")
+  trait_matrix_oi <- trait_matrix_oi %>% base::t() %>% 
+    GenomicRanges::as.data.frame() %>% 
+    tibble::rownames_to_column(var = "sample_id")
+  trait_matrix_oi <- trait_matrix_oi %>% 
+    tidyr::pivot_longer(cols = -sample_id, names_to=value_type_id, values_to = column_name)
+  return(trait_matrix_oi)
+}
+
+read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id,is_exon_cc) {
   if (!is.vector(file_list) || length(file_list) == 0) {
     stop("file_list must be a non-empty vector of file names.")
   }
@@ -113,8 +118,10 @@ read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id) {
     
     dataset <- open_dataset(file_name)
     
+    trait_column <- if (is_exon_cc) "molecular_trait_object_id" else "molecular_trait_id"
+    # Dynamically filter using the chosen column
     filtered_data <- dataset %>%
-      filter(variant == variant_to_match & molecular_trait_object_id == phenotype_id) %>%
+      filter(variant == variant_to_match, !!sym(trait_column) == phenotype_id) %>%
       collect()
     
     if (nrow(filtered_data) > 0) {
@@ -131,13 +138,13 @@ susie_file_path = opt$f
 sample_meta_path = opt$s
 phenotype_meta_path = opt$p
 qtl_group_in = opt$q
-study_name = opt$n
 vcf_file_path = opt$v
 bigwig_files_path = opt$b
 mane_transcript_gene_map_file = opt$m
 gtf_file_path = opt$g
-txrev_gtf_file_path = opt$t
+txrev_gtf_file_path = opt$txrev_gtf_file
 norm_usage_matrix_path = opt$u
+tpm_matrix_path = opt$tpm_matrix
 scaling_factors_path = opt$div_scaling_factors
 vcf_sample_bad_symbol = opt$vcf_sample_bad_symbol
 vcf_sample_replacement_symbol = opt$vcf_sample_replacement_symbol
@@ -149,7 +156,6 @@ message("######### qtl_group          : ", qtl_group_in)
 message("######### susie_file_path    : ", susie_file_path)
 message("######### sample_meta_path   : ", sample_meta_path)
 message("######### phenotype_meta_path: ", phenotype_meta_path)
-message("######### opt_study_name     : ", study_name)
 message("######### vcf_file_path      : ", vcf_file_path)
 message("######### bigwig_files_path  : ", bigwig_files_path)
 message("######### mane_map_file_path : ", mane_transcript_gene_map_file)
@@ -157,7 +163,7 @@ message("######### gtf_file_path      : ", gtf_file_path)
 message("######### scaling_fct_path   : ", scaling_factors_path)
 message("######### txrev_gtf_file_path: ", txrev_gtf_file_path)
 message("######### norm_usage_matrix  : ", norm_usage_matrix_path)
-
+message("######### tpm_matrix_path    : ", tpm_matrix_path)
 
 ################## Global variable definitions ################
 conf.level = 0.95
@@ -196,7 +202,9 @@ highest_pip_vars_per_cs$nominal_cc_path <- lapply(highest_pip_vars_per_cs$nomina
   strsplit(gsub("[\\[\\]'\" ]", "", x), ",")
 })
 message(" ## Reading normalised usage matrix")
-norm_exp_df <- readr::read_tsv(norm_usage_matrix_path)
+trait_ids <- unique(highest_pip_vars_per_cs$molecular_trait_id)
+norm_exp_df <- filter_trait_matrix(trait_ids, norm_usage_matrix_path, tpm_matrix = FALSE)
+tpm_exp_df <- filter_trait_matrix(trait_ids, tpm_matrix_path, tpm_matrix = TRUE)
 
 message(" ## Reading metadata file")
 phenotype_metadata <- readr::read_tsv(phenotype_meta_path, col_types = "cccccddiccid") 
@@ -252,7 +260,7 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
     dplyr::filter(ID %in% variant_regions_vcf$variant) %>% 
     dplyr::arrange(CHROM, POS)
   
-
+  
   var_genotype <- snps_filt %>% 
     dplyr::select(-c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT")) %>% 
     base::t() %>% 
@@ -300,7 +308,8 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   nom_exon_cc_sumstats_variant_phenotype_id <- read_and_filter_parquet( 
     file_list = ss_oi$nominal_exon_cc_path[[1]], 
     variant_to_match = ss_oi$variant,
-    phenotype_id=ss_oi$gene_id
+    phenotype_id=ss_oi$gene_id,
+    is_exon_cc=TRUE
   )
   
   start_time <- time_here(prev_time = start_time, message_text = " >> prepared track_data_study in: ")
@@ -376,13 +385,12 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   
   # BOXPLOTS START HERE
   message(" ## Prepare boxplot data")
+  
   norm_exp_df_oi <- norm_exp_df %>% dplyr::filter(phenotype_id %in% txrev_quant_pheno_ids$phenotype_id)
-  norm_exp_df_oi <- tibble::column_to_rownames(.data = norm_exp_df_oi,var = "phenotype_id")
-  norm_exp_df_oi <- norm_exp_df_oi %>% base::t() %>% 
-    GenomicRanges::as.data.frame() %>% 
-    tibble::rownames_to_column(var = "sample_id")
-  norm_exp_df_oi <- norm_exp_df_oi %>% 
-    tidyr::pivot_longer(cols = -sample_id, names_to="intron_id", values_to = "norm_exp")
+  norm_exp_df_oi = format_trait_matrix(norm_exp_df_oi, "norm_exp","intron_id")
+  
+  tpm_exp_df_oi <- tpm_exp_df %>% dplyr::filter(phenotype_id %in% txrev_quant_pheno_ids$phenotype_id)
+  tpm_exp_df_oi = format_trait_matrix(tpm_exp_df_oi, "tpm_exp","intron_id")
   
   track_data_study_box <- track_data_study %>% 
     dplyr::mutate(genotype_text = as.factor(colour_group)) %>% 
@@ -392,13 +400,15 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
     dplyr::mutate(snp_id = ss_oi$variant) 
   
   track_data_study_box <- norm_exp_df_oi %>%  
-    dplyr::left_join(track_data_study_box, by = "sample_id") %>% 
-    dplyr::mutate(is_significant = intron_id == ss_oi$molecular_trait_id)
+    dplyr::left_join(track_data_study_box, by = "sample_id")
+  track_data_study_box <- track_data_study_box %>%  
+    dplyr::left_join(tpm_exp_df_oi, by = c("sample_id", "intron_id"))
   
   nom_cc_sumstats_variant_phenotype_id <- read_and_filter_parquet( 
     file_list = ss_oi$nominal_cc_path[[1]],
     variant_to_match = ss_oi$variant,
-    phenotype_id=ss_oi$molecular_trait_id
+    phenotype_id=ss_oi$molecular_trait_id,
+    is_exon_cc=FALSE
   )
   
   # Keep only 1 rsid per variant per molecular_trait_id
@@ -412,15 +422,11 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
     dplyr::rename(intron_id = molecular_trait_id)
   
   track_data_study_box_wrap <- track_data_study_box %>% 
-    dplyr::left_join(nom_cc_sumstats_filt, by = "intron_id") %>% 
-    dplyr::mutate(stats_text = paste0("Pval: ", pvalue, "			BETA: ", beta, 
-                                      "\nSE: ", se)) %>% 
-    dplyr::mutate(intron_id_with_stats = paste0(intron_id, "\n", stats_text))
+    dplyr::left_join(nom_cc_sumstats_filt, by = "intron_id")
   
   track_data_study_box_wrap_for_RDS <- track_data_study_box_wrap %>%
-    dplyr::select(genotype_text, norm_exp, is_significant, intron_id, pvalue, beta, se, snp_id, maf)
+    dplyr::select(genotype_text, norm_exp, tpm_exp, intron_id, pvalue, beta, se, snp_id, maf)
   
-  start_time <- time_here(prev_time = start_time, message_text = " >> until boxplot ready: ")
   track_data_study_box_wrap_for_RDS <- track_data_study_box_wrap_for_RDS[sample(nrow(track_data_study_box_wrap_for_RDS)),]
   
   tx_str_df <- tx_structure_df %>% dplyr::mutate(limit_max = max(coverage_data_list$limits))
