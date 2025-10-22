@@ -81,11 +81,8 @@ prepareTranscriptStructureForPlotting <- function(exon_ranges, cds_ranges, trans
   return(transcript_struct)
 }
 
-filter_trait_matrix <- function(unique_trait_ids, trait_matrix_pq_file, tpm_matrix) {
-  trait_dataset <- open_dataset(trait_matrix_pq_file)
-  filtered_traits_dataset <- trait_dataset %>%
-    filter(phenotype_id %in% unique_trait_ids)
-  traits_df <- collect(filtered_traits_dataset)
+read_trait_matrix <- function(trait_matrix_pq_file) {
+  traits_df <- read_parquet(trait_matrix_pq_file)
   return(traits_df)
 }
 
@@ -99,7 +96,7 @@ format_trait_matrix <- function(trait_matrix_oi, column_name,value_type_id) {
   return(trait_matrix_oi)
 }
 
-read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id,is_exon_cc) {
+read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id) {
   if (!is.vector(file_list) || length(file_list) == 0) {
     stop("file_list must be a non-empty vector of file names.")
   }
@@ -111,13 +108,9 @@ read_and_filter_parquet <- function(file_list, variant_to_match, phenotype_id,is
       warning(paste("File not found:", file_name))
       next
     }
-    
     dataset <- open_dataset(file_name)
-    
-    trait_column <- if (is_exon_cc) "molecular_trait_object_id" else "molecular_trait_id"
-    # Dynamically filter using the chosen column
     filtered_data <- dataset %>%
-      filter(variant == variant_to_match, !!sym(trait_column) == phenotype_id) %>%
+      filter(variant == variant_to_match & gene_id == phenotype_id) %>%
       collect()
     
     if (nrow(filtered_data) > 0) {
@@ -198,9 +191,8 @@ highest_pip_vars_per_cs$nominal_cc_path <- lapply(highest_pip_vars_per_cs$nomina
   strsplit(gsub("[\\[\\]'\" ]", "", x), ",")
 })
 message(" ## Reading normalised usage matrix")
-trait_ids <- unique(highest_pip_vars_per_cs$molecular_trait_id)
-norm_exp_df <- filter_trait_matrix(trait_ids, norm_usage_matrix_path, tpm_matrix = FALSE)
-tpm_exp_df <- filter_trait_matrix(trait_ids, tpm_matrix_path, tpm_matrix = TRUE)
+norm_exp_df <- read_trait_matrix(norm_usage_matrix_path)
+tpm_exp_df <- read_trait_matrix(tpm_matrix_path)
 
 message(" ## Reading metadata file")
 phenotype_metadata <- readr::read_tsv(phenotype_meta_path, col_types = "cccccddiccid") 
@@ -303,15 +295,17 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   nom_exon_cc_sumstats_variant_phenotype_id <- read_and_filter_parquet( 
     file_list = ss_oi$nominal_exon_cc_path[[1]], 
     variant_to_match = ss_oi$variant,
-    phenotype_id=ss_oi$gene_id,
-    is_exon_cc=TRUE
+    phenotype_id=ss_oi$gene_id
   )
   
   start_time <- time_here(prev_time = start_time, message_text = " >> prepared track_data_study in: ")
   if(!is.null(nom_exon_cc_sumstats_variant_phenotype_id)) {
     # Extract the QTLs of exons according to gene and variant of interest
     nom_exon_cc_sumstats_filt <- nom_exon_cc_sumstats_variant_phenotype_id %>% 
-      dplyr::filter(rsid == rsid[1]) %>% # if variant has more than one rsid keep only the first unique rsid 
+      dplyr::group_by(molecular_trait_id, variant) %>%
+      dplyr::filter(!is.na(rsid) | all(is.na(rsid))) %>% 
+      dplyr::slice(1) %>% 
+      dplyr::ungroup() %>%
       dplyr::mutate(exon_end = as.numeric(gsub(pattern = ".*\\_", replacement = "", x = molecular_trait_id))) %>% 
       dplyr::mutate(exon_start = gsub(pattern = "_[^_]+$", replacement = "", x = molecular_trait_id)) %>% 
       dplyr::mutate(exon_start = as.numeric(gsub(pattern = ".*\\_", replacement = "", x = exon_start))) %>% 
@@ -400,14 +394,14 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   nom_cc_sumstats_variant_phenotype_id <- read_and_filter_parquet( 
     file_list = ss_oi$nominal_cc_path[[1]],
     variant_to_match = ss_oi$variant,
-    phenotype_id=ss_oi$molecular_trait_id,
-    is_exon_cc=FALSE
+    phenotype_id=ss_oi$gene_id
   )
   
   # Keep only 1 rsid per variant per molecular_trait_id
   nom_cc_sumstats <- nom_cc_sumstats_variant_phenotype_id %>% 
-    dplyr::group_by(molecular_trait_id, variant) %>% 
-    dplyr::filter(rsid == rsid[1]) %>% 
+    dplyr::group_by(molecular_trait_id, variant) %>%
+    dplyr::filter(!is.na(rsid) | all(is.na(rsid))) %>% 
+    dplyr::slice(1) %>%
     dplyr::ungroup()
   
   nom_cc_sumstats_filt <- nom_cc_sumstats %>% 

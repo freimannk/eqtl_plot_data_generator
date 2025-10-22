@@ -81,7 +81,6 @@ process generate_dataset_ids_sqlites {
 }
 
 process generate_credible_sets_db {
-    tag "${dataset_id}"
     container = 'quay.io/kfkf33/duckdb_sqlite_with_path:v1'
     publishDir "${params.outdir}/${study_id}", mode: 'copy', overwrite: true, pattern: "*.sqlite"
 

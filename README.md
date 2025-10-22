@@ -26,3 +26,12 @@ studyFile has to contain columns:
 * pheno_meta - Phenotype metadata file. Tab separated file
 * scaling_factors - Path to the scaling_factors file
 
+
+In nextflow.config file: 
+* vcf_sample_names_correction — default: false.
+Set to true to modify sample names in VCF files.
+* vcf_samples_old_string_part — default: "".
+The substring to replace in VCF sample names.
+* vcf_samples_new_string_part — default: "".
+The replacement string for correcting VCF sample names.
+

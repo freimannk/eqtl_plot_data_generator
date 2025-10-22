@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=4G
@@ -13,5 +13,5 @@ module load squashfs/4.4
 module load tabix
 
 nextflow run main.nf -profile tartu_hpc -resume \
-  --studyFile /gpfs/space/projects/otar2069/eQTL_plot_data_testdata/testdata/GEUVADIS_testdata_studyfile.tsv\
-  --outdir testdata_results
+  --studyFile ge/MAGE_ge_test.tsv\
+  --outdir MAGE_ge_test
