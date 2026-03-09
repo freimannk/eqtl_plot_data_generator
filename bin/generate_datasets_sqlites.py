@@ -6,6 +6,7 @@ import datetime
 from typing import List, Tuple, Any, Optional
 import io
 import sqlite3
+import numpy as np
 from functools import lru_cache
 from math import isnan
 from pathlib import Path
@@ -295,8 +296,8 @@ class Boxplot(BaseModel):
 
         for group, df in box_plot_df.groupby(['molecular_trait_id', 'genotype_text'], observed=False):
             molecular_trait_id, genotype = group
-            norm_exp_values = df['norm_exp'].tolist()
-            tpm_exp_values = df['tpm_exp'].tolist()
+            norm_exp_values = df['norm_exp'].replace('NA', np.nan).tolist()
+            tpm_exp_values = df['tpm_exp'].replace('NA', np.nan).tolist()
             if molecular_trait_id not in intron_statistics:
                 continue
             # let's take the previously collected metadata and get a reference to it

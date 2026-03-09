@@ -76,12 +76,13 @@ if __name__ == "__main__":
     nominal_exon_sumstats_info = parse_parquet_file_info_from_file(args.nominal_sumstats_exon_files)
     df_credible_sets = pl.read_parquet(args.susie_output_file)
     phenotype_metadata_df = pl.read_csv(args.phenotype_metadata, separator='\t', schema_overrides={"chromosome": pl.Utf8})
+
     df_credible_sets = df_credible_sets.join(
-    phenotype_metadata_df.select(["phenotype_id", "strand","gene_name","group_id","quant_id"]),  
-    left_on="molecular_trait_id",  
-    right_on="phenotype_id",       
-    how="left"                    
-)
+    phenotype_metadata_df.select(["phenotype_id", "strand","gene_name","group_id","quant_id"]),
+    left_on="molecular_trait_id",
+    right_on="phenotype_id",
+    how="left")
+
     df_credible_sets = df_credible_sets.with_columns(
     (pl.lit(args.dataset_id+"_") + pl.col("cs_id")).alias("cs_id")
 )
