@@ -1,0 +1,1 @@
+/gpfs/helios/home/kerimov/alasoo_lab/plotgen/test_data/leafcutter/QTD000111_exon_for_leafcutter_chr_22_18500000_20000000.parquet

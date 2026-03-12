@@ -13,8 +13,8 @@ option_list <- list(
               help="The selected qtl_group in the study", metavar = "type"),
   make_option(c("-v", "--vcf_file"), type="character", default=NULL,
               help="TPM quantile TSV file with phenotype_id column", metavar = "type"),
-  make_option(c("-b", "--bigwig_path"), type="character", default=NULL,
-              help="Path to the bigwig files", metavar = "type"),
+  make_option(c("-c", "--coverage_parquet"), type="character", default=NULL,
+              help="Path to the coverage parquet file", metavar = "type"),
   make_option(c("-m", "--mane_transcript_gene_map"), type="character", default=NULL,
               help="Path to the MANE transcripts of genes map file", metavar = "type"),
   make_option(c("-g", "--gtf_file"), type="character", default=NULL,
@@ -134,7 +134,7 @@ sample_meta_path = opt$s
 phenotype_meta_path = opt$p
 qtl_group_in = opt$q
 vcf_file_path = opt$v
-bigwig_files_path = opt$b
+coverage_parquet_path = opt$c
 mane_transcript_gene_map_file = opt$m
 gtf_file_path = opt$g
 norm_usage_matrix_path = opt$u
@@ -151,7 +151,7 @@ message("######### susie_file_path    : ", susie_file_path)
 message("######### sample_meta_path   : ", sample_meta_path)
 message("######### phenotype_meta_path: ", phenotype_meta_path)
 message("######### vcf_file_path      : ", vcf_file_path)
-message("######### bigwig_files_path  : ", bigwig_files_path)
+message("######### coverage_parquet   : ", coverage_parquet_path)
 message("######### mane_map_file_path : ", mane_transcript_gene_map_file)
 message("######### gtf_file_path      : ", gtf_file_path)
 message("######### tpm_matrix         : ", tpm_matrix_path)
@@ -284,21 +284,13 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   var_genotype <- sample_meta_clean %>% 
     left_join(var_genotype, by = "genotype_id")
   
-  bigwig_files <- list.files(bigwig_files_path, full.names = T)
-  
-  track_data_study <- data.frame(file_name = (gsub(pattern = paste0(bigwig_files_path, "/"), replacement = "", x = bigwig_files, fixed = T)),
-                                 bigWig = bigwig_files)
-  
-  track_data_study <- track_data_study %>% 
-    dplyr::mutate(sample_id = gsub(pattern = ".bigwig", replacement = "", x = file_name)) %>% 
-    dplyr::filter(sample_id %in% sample_meta_clean$sample_id)
-  
-  track_data_study <-track_data_study %>% 
-    dplyr::left_join(var_genotype %>% dplyr::select(sample_id, qtl_group, DS), by = c("sample_id")) %>% 
+  track_data_study <- var_genotype %>% 
+    dplyr::select(sample_id, qtl_group, DS) %>% 
     dplyr::left_join(scaling_factor_data) %>% 
     dplyr::rename(scaling_factor = scaling_factors) %>% 
     dplyr::mutate(track_id = qtl_group) %>% 
     dplyr::mutate(colour_group = as.character(DS)) %>% 
+    dplyr::mutate(bigWig = "") %>% 
     dplyr::select(sample_id, scaling_factor, bigWig, track_id, colour_group, qtl_group) %>% 
     dplyr::filter(qtl_group==qtl_group_in)
   
@@ -368,7 +360,8 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
   coverage_data_list = tryCatch(wiggleplotr::extractCoverageData(exons = exons_to_plot, 
                                                                  cdss = exon_cdss_to_plot, 
                                                                  plot_fraction = 0.2,
-                                                                 track_data = track_data_study), 
+                                                                 track_data = track_data_study, 
+                                                                 coverage_ranges_pq = coverage_parquet_path), 
                                 error = function(e) {
                                   message(" ## Problem with generating coverage_data wiggleplotr")
                                   message(e)
@@ -413,6 +406,10 @@ for (index in 1:nrow(highest_pip_vars_per_cs)) {
     dplyr::left_join(track_data_study_box, by = "sample_id") 
   track_data_study_box <- track_data_study_box %>%  
     dplyr::left_join(tpm_exp_df_oi, by = c("sample_id", "tx_id"))
+  
+  # Remove samples present in expression matrix but missing from metadata-filtered sample set
+  track_data_study_box <- track_data_study_box %>%
+    dplyr::filter(!is.na(snp_id))
   
   message(" ## Reading nominal summary stats with seqminer")
   

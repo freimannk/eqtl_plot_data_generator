@@ -21,10 +21,10 @@ process prepare_batches {
     label "process_low"
 
     input:
-    tuple val(dataset_id), val(study_id), val(quant_method), val(qtl_group), val(study_name), file(susie_purity_filtered), file(sample_meta), file(bigwig_path), file(usage_matrix_norm),file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index)
+    tuple val(dataset_id), val(study_id), val(quant_method), val(qtl_group), val(study_name), file(susie_purity_filtered), file(sample_meta), file(coverage_parquet), file(usage_matrix_norm),file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index)
 
     output:
-    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(bigwig_path), file(usage_matrix_norm) ,file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), emit: study_tsv_inputs_ch
+    tuple val(dataset_id), val(quant_method), val(qtl_group), file(sample_meta), file(coverage_parquet), file(usage_matrix_norm) ,file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), emit: study_tsv_inputs_ch
     tuple val(dataset_id), val(quant_method), val(qtl_group), file("${dataset_id}_${qtl_group}_${quant_method}*.parquet"), emit: susie_batches
     tuple val(study_id), val(dataset_id), val(quant_method), val(qtl_group), file("${study_id}_${dataset_id}_${qtl_group}_${quant_method}.parquet"), emit: dataset_id_credible_set_tables
 
@@ -103,11 +103,11 @@ process convert_parquet_format {
     container = 'quay.io/kfkf33/duckdb_sqlite_with_path:v1'
 
     input:
-    tuple val(dataset_id), val(study_id), val(quant_method), val(qtl_group), val(study_name), file(susie_purity_filtered), file(sample_meta), file(bigwig_path), file(usage_matrix_norm),file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index)
+    tuple val(dataset_id), val(study_id), val(quant_method), val(qtl_group), val(study_name), file(susie_purity_filtered), file(sample_meta), file(coverage_parquet), file(usage_matrix_norm),file(tpm_matrix), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index)
     
 
     output:
-    tuple val(dataset_id), val(study_id), val(quant_method), val(qtl_group), val(study_name), file(susie_purity_filtered), file(sample_meta), file(bigwig_path), file("${usage_matrix_norm.simpleName}.parquet"),file("${usage_matrix_norm.simpleName}_TPM.parquet"), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), emit: converted_study_input
+    tuple val(dataset_id), val(study_id), val(quant_method), val(qtl_group), val(study_name), file(susie_purity_filtered), file(sample_meta), file(coverage_parquet), file("${usage_matrix_norm.simpleName}.parquet"),file("${usage_matrix_norm.simpleName}_TPM.parquet"), file(exon_summ_stats_files), file(all_summ_stats_files), file(phenotype_meta), file(scaling_factors), file(vcf_file), file(vcf_file_index), emit: converted_study_input
 
     script:
     """
